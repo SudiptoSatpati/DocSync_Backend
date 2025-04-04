@@ -42,19 +42,29 @@ const authenticateSocket = async (token?: string) => {
   }
 };
 
-// Helper function to save document version
-async function saveDocumentVersion(documentId: string, userId: any) {
+// Helper function to save document version with current content
+async function saveDocumentVersion(
+  documentId: string,
+  userId: any,
+  io: Server
+) {
   try {
+    if (io) console.log("getting io");
+    // Get the document with current content
     const document = await DocumentModel.findById(documentId);
     if (!document) return;
+
+    // Get the current content
+    const currentContent = document.data || document.content;
 
     // Increment version number
     const currentVersion = document.currentVersion || 0;
     const newVersionNumber = currentVersion + 1;
 
-    // Update document with new version number
+    // Update document with new version number AND current content
     await DocumentModel.findByIdAndUpdate(documentId, {
-      content: document.data || document.content,
+      data: currentContent,
+      content: currentContent,
       currentVersion: newVersionNumber,
       updatedAt: new Date(),
     });
@@ -63,7 +73,7 @@ async function saveDocumentVersion(documentId: string, userId: any) {
     await DocumentVersion.create({
       document: documentId,
       versionNumber: newVersionNumber,
-      content: document.data || document.content,
+      content: currentContent,
       createdBy: userId,
     });
 
@@ -72,15 +82,20 @@ async function saveDocumentVersion(documentId: string, userId: any) {
     await redis.del(`user:${userId}:documents`);
 
     console.log(
-      `📝 Document ${documentId} version ${newVersionNumber} auto-saved on user change`
+      `📝 Document ${documentId} version ${newVersionNumber} auto-saved on user change with current content`
     );
+    return newVersionNumber;
   } catch (error) {
     console.error("❌ Error auto-saving document version:", error);
+    return null;
   }
 }
 
 // Initialize socket.io service
 export const initSocketService = (io: Server) => {
+  // Map to track latest document content by documentId
+  const documentContentCache = new Map();
+
   io.use(async (socket: Socket, next) => {
     try {
       // Extract token from multiple places
@@ -167,13 +182,16 @@ export const initSocketService = (io: Server) => {
         // Get online users after adding the current user
         const onlineUsers = await getOnlineUsers(documentId);
 
-        // If there are other users already in the document, create a new version
-        if (onlineUsers.length > 1) {
-          await saveDocumentVersion(documentId, user._id);
-        }
-
         // Get document data or default value
         const documentData = document.get("data") || defaultValue;
+
+        // Update content cache with current document data
+        documentContentCache.set(documentId, documentData);
+
+        // If there are other users already in the document, create a new version
+        if (onlineUsers.length > 1) {
+          await saveDocumentVersion(documentId, user._id, io);
+        }
 
         // Send document content to the client
         socket.emit("load-document", documentData);
@@ -269,8 +287,6 @@ export const initSocketService = (io: Server) => {
     // Save document
     socket.on("save-document", async (data: any) => {
       try {
-        // console.log("data" , JSON.parse(JSON.stringify(data)));
-        // console.log(data.content);
         const rooms = Array.from(socket.rooms).filter(
           (room) => room !== socket.id
         );
@@ -297,6 +313,9 @@ export const initSocketService = (io: Server) => {
             });
             continue;
           }
+
+          // Update content cache
+          documentContentCache.set(documentId, data);
 
           // Increment version number
           const currentVersion = document.currentVersion || 0;
@@ -332,6 +351,27 @@ export const initSocketService = (io: Server) => {
       }
     });
 
+    // Add this new event to track content changes in real-time
+    socket.on("content-update", async ({ documentId, content }) => {
+      try {
+        // Update our cache with the latest content
+        documentContentCache.set(documentId, content);
+
+        // Update document data without creating a new version
+        await DocumentModel.findByIdAndUpdate(documentId, {
+          data: content,
+          content: content,
+          updatedAt: new Date(),
+        });
+
+        console.log(
+          `🔄 Document ${documentId} content updated by ${user.username} (no version increment)`
+        );
+      } catch (error) {
+        console.error("❌ Error updating document content:", error);
+      }
+    });
+
     socket.on("disconnect", async () => {
       try {
         const rooms = Array.from(socket.rooms).filter(
@@ -342,16 +382,16 @@ export const initSocketService = (io: Server) => {
           // Get current online users before removing this user
           const onlineUsersBefore = await getOnlineUsers(documentId);
 
+          // If there are multiple users in the document, save current version before leaving
+          if (onlineUsersBefore.length > 1) {
+            await saveDocumentVersion(documentId, user._id, io);
+          }
+
           // Remove the disconnecting user
           await removeUserFromDocument(documentId, user._id);
 
           // Get updated online users after removal
           const onlineUsersAfter = await getOnlineUsers(documentId);
-
-          // If there are still other users in the document, save a version
-          if (onlineUsersBefore.length > 1 && onlineUsersAfter.length > 0) {
-            await saveDocumentVersion(documentId, user._id);
-          }
 
           // Notify others about user departure
           io.to(documentId).emit("user-left", {
