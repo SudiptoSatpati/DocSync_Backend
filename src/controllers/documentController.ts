@@ -623,6 +623,8 @@ export const rollbackToVersion = async (
 
     await document.save();
 
+    await redis.del(`user:${req.user._id}:documents`);
+
     console.log("✅ Rollback successful");
     return res.status(200).json({
       status: "SUCCESS",
