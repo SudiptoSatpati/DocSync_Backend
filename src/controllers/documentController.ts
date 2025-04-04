@@ -728,6 +728,8 @@ export const addCollaborator = async (
     const userId2 = req.user._id.toString(); // Store user ID safely
     await invalidateDocumentCache(req.params.id, userId2);
 
+    await invalidateDocumentCache(req.params.id, userId);
+
     return res.status(200).json({
       status: "SUCCESS",
       data: {
@@ -825,6 +827,7 @@ export const removeCollaborator = async (
 
     const userId2 = req.user._id.toString(); // Store user ID safely
     await invalidateDocumentCache(req.params.id, userId2);
+    await invalidateDocumentCache(req.params.id, userId);
 
     return res.status(200).json({
       status: "SUCCESS",
