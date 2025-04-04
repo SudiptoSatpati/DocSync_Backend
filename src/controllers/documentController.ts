@@ -623,7 +623,8 @@ export const rollbackToVersion = async (
 
     await document.save();
 
-    await invalidateDocumentCache(req.params.id, userId);
+    const userId2 = req.user._id.toString(); // Store user ID safely
+    await invalidateDocumentCache(req.params.id, userId2);
 
     console.log("✅ Rollback successful");
     return res.status(200).json({
@@ -724,7 +725,8 @@ export const addCollaborator = async (
     // Save updated document
     await document.save();
     // Invalidate the user's document cache in Redis
-    await invalidateDocumentCache(req.params.id, userId);
+    const userId2 = req.user._id.toString(); // Store user ID safely
+    await invalidateDocumentCache(req.params.id, userId2);
 
     return res.status(200).json({
       status: "SUCCESS",
@@ -821,7 +823,8 @@ export const removeCollaborator = async (
     document.collaborators.splice(collaboratorIndex, 1);
     await document.save();
 
-    await invalidateDocumentCache(req.params.id, userId);
+    const userId2 = req.user._id.toString(); // Store user ID safely
+    await invalidateDocumentCache(req.params.id, userId2);
 
     return res.status(200).json({
       status: "SUCCESS",
