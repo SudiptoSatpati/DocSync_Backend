@@ -54,6 +54,7 @@ async function saveDocumentVersion(documentId: string, userId: any) {
 
     // Update document with new version number
     await DocumentModel.findByIdAndUpdate(documentId, {
+      content: document.data || document.content,
       currentVersion: newVersionNumber,
       updatedAt: new Date(),
     });
