@@ -719,6 +719,9 @@ export const addCollaborator = async (
       document.collaborators.push({ user: userId, permission });
     }
 
+    // Invalidate the user's document cache in Redis
+    await redis.del(`user:${req.user._id}:documents`);
+
     // Save updated document
     await document.save();
 
@@ -816,6 +819,8 @@ export const removeCollaborator = async (
     // Remove collaborator
     document.collaborators.splice(collaboratorIndex, 1);
     await document.save();
+
+    await redis.del(`user:${req.user._id}:documents`);
 
     return res.status(200).json({
       status: "SUCCESS",
