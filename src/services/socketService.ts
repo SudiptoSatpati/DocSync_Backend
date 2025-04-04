@@ -42,60 +42,31 @@ const authenticateSocket = async (token?: string) => {
   }
 };
 
-// Helper function to save document version with current content
-async function saveDocumentVersion(
-  documentId: string,
-  userId: any,
-  io: Server
-) {
-  try {
-    if (io) console.log("getting io");
-    // Get the document with current content
-    const document = await DocumentModel.findById(documentId);
-    if (!document) return;
+// Find or create document helper function
+// async function findOrCreateDocument(id: string, userId: mongoose.Types.ObjectId) {
+//     if (!id) return null;
 
-    // Get the current content
-    const currentContent = document.data || document.content;
+//     try {
+//         const document = await DocumentModel.findById(id);
+//         if (document) return document;
 
-    // Increment version number
-    const currentVersion = document.currentVersion || 0;
-    const newVersionNumber = currentVersion + 1;
-
-    // Update document with new version number AND current content
-    await DocumentModel.findByIdAndUpdate(documentId, {
-      data: currentContent,
-      content: currentContent,
-      currentVersion: newVersionNumber,
-      updatedAt: new Date(),
-    });
-
-    // Create new document version
-    await DocumentVersion.create({
-      document: documentId,
-      versionNumber: newVersionNumber,
-      content: currentContent,
-      createdBy: userId,
-    });
-
-    // Invalidate Redis cache for the document
-    await redis.del(`document:${documentId}`);
-    await redis.del(`user:${userId}:documents`);
-
-    console.log(
-      `📝 Document ${documentId} version ${newVersionNumber} auto-saved on user change with current content`
-    );
-    return newVersionNumber;
-  } catch (error) {
-    console.error("❌ Error auto-saving document version:", error);
-    return null;
-  }
-}
+//         // Create a new document with the user as owner
+//         return await DocumentModel.create({
+//             _id: id,
+//             data: defaultValue,
+//             content: '',
+//             title: 'Untitled Document',
+//             owner: userId,
+//             collaborators: []
+//         });
+//     } catch (error) {
+//         console.error('Error finding or creating document:', error);
+//         return null;
+//     }
+// }
 
 // Initialize socket.io service
 export const initSocketService = (io: Server) => {
-  // Map to track latest document content by documentId
-  const documentContentCache = new Map();
-
   io.use(async (socket: Socket, next) => {
     try {
       // Extract token from multiple places
@@ -132,6 +103,9 @@ export const initSocketService = (io: Server) => {
   io.on("connection", async (socket: Socket) => {
     const user = (socket as any).user;
     console.log(`User connected: ${user.username} (${socket.id})`);
+
+    // Get document event - Quill.js implementation
+    //
 
     // Get document event - Quill.js implementation
     socket.on("get-document", async (documentId: string) => {
@@ -179,22 +153,14 @@ export const initSocketService = (io: Server) => {
         // Add user to online users
         await addUserToDocument(documentId, user);
 
-        // Get online users after adding the current user
-        const onlineUsers = await getOnlineUsers(documentId);
-
         // Get document data or default value
         const documentData = document.get("data") || defaultValue;
 
-        // Update content cache with current document data
-        documentContentCache.set(documentId, documentData);
-
-        // If there are other users already in the document, create a new version
-        if (onlineUsers.length > 1) {
-          await saveDocumentVersion(documentId, user._id, io);
-        }
-
         // Send document content to the client
         socket.emit("load-document", documentData);
+
+        // Get online users
+        const onlineUsers = await getOnlineUsers(documentId);
 
         // Notify others that a user has joined
         io.to(documentId).emit("user-joined", {
@@ -287,6 +253,8 @@ export const initSocketService = (io: Server) => {
     // Save document
     socket.on("save-document", async (data: any) => {
       try {
+        // console.log("data" , JSON.parse(JSON.stringify(data)));
+        // console.log(data.content);
         const rooms = Array.from(socket.rooms).filter(
           (room) => room !== socket.id
         );
@@ -313,9 +281,6 @@ export const initSocketService = (io: Server) => {
             });
             continue;
           }
-
-          // Update content cache
-          documentContentCache.set(documentId, data);
 
           // Increment version number
           const currentVersion = document.currentVersion || 0;
@@ -351,27 +316,6 @@ export const initSocketService = (io: Server) => {
       }
     });
 
-    // Add this new event to track content changes in real-time
-    socket.on("content-update", async ({ documentId, content }) => {
-      try {
-        // Update our cache with the latest content
-        documentContentCache.set(documentId, content);
-
-        // Update document data without creating a new version
-        await DocumentModel.findByIdAndUpdate(documentId, {
-          data: content,
-          content: content,
-          updatedAt: new Date(),
-        });
-
-        console.log(
-          `🔄 Document ${documentId} content updated by ${user.username} (no version increment)`
-        );
-      } catch (error) {
-        console.error("❌ Error updating document content:", error);
-      }
-    });
-
     socket.on("disconnect", async () => {
       try {
         const rooms = Array.from(socket.rooms).filter(
@@ -379,24 +323,11 @@ export const initSocketService = (io: Server) => {
         );
 
         for (const documentId of rooms) {
-          // Get current online users before removing this user
-          const onlineUsersBefore = await getOnlineUsers(documentId);
-
-          // If there are multiple users in the document, save current version before leaving
-          if (onlineUsersBefore.length > 1) {
-            await saveDocumentVersion(documentId, user._id, io);
-          }
-
-          // Remove the disconnecting user
           await removeUserFromDocument(documentId, user._id);
 
-          // Get updated online users after removal
-          const onlineUsersAfter = await getOnlineUsers(documentId);
-
-          // Notify others about user departure
           io.to(documentId).emit("user-left", {
             userId: user._id,
-            onlineUsers: onlineUsersAfter,
+            onlineUsers: await getOnlineUsers(documentId),
           });
         }
 
