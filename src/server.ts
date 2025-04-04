@@ -60,7 +60,7 @@ app.use(
 // Setup WebSocket with CORS
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.NODE_ENV === "production" ? FRONTEND_URL : "*",
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true,
   },
