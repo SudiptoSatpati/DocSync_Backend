@@ -269,7 +269,6 @@ export const initSocketService = (io: Server) => {
       }
     );
 
-    // Save document
     socket.on("save-document", async (data: any) => {
       try {
         // console.log("data" , JSON.parse(JSON.stringify(data)));
@@ -321,16 +320,26 @@ export const initSocketService = (io: Server) => {
             createdBy: user._id,
           });
 
-          // Invalidate Redis cache for the document
-          // await redis.del(`document:${documentId}`);
-          // await redis.del(`user:${user._id.toString}:documents`);
-
+          // Invalidate Redis cache for the document owner
           const userId = user._id.toString(); // Store user ID safely
-
           await invalidateDocumentCache(documentId, userId);
 
+          // Invalidate Redis cache for all collaborators
+          if (collaborators && collaborators.length > 0) {
+            for (const collaborator of collaborators) {
+              const collaboratorId = collaborator.user.toString();
+              await invalidateDocumentCache(documentId, collaboratorId);
+            }
+          }
+
+          // Also invalidate cache for document owner (if not already done)
+          const ownerId = document.get("owner").toString();
+          if (ownerId !== userId) {
+            await invalidateDocumentCache(documentId, ownerId);
+          }
+
           console.log(
-            `💾 Document ${documentId} saved by ${user.username}, Version ${newVersionNumber}`
+            `💾 Document ${documentId} saved by ${user.username}, Version ${newVersionNumber}, Cache invalidated for owner and ${collaborators.length} collaborators`
           );
         }
       } catch (error) {
