@@ -315,6 +315,14 @@ export const updateDocument = async (
       });
     }
 
+    const collaborators = document.get("collaborators") || [];
+    // Invalidate Redis cache for all collaborators
+    if (collaborators && collaborators.length > 0) {
+      for (const collaborator of collaborators) {
+        const collaboratorId = collaborator.user.toString();
+        await invalidateDocumentCache(req.params.id, collaboratorId);
+      }
+    }
     // Update document properties
     if (title) document.title = title;
     if (content !== undefined) {
