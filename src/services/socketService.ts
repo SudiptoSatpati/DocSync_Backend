@@ -16,6 +16,25 @@ import { JwtPayload } from "../types";
 // Default value for new documents
 const defaultValue = {};
 
+export const invalidateDocumentCache = async (
+  documentId: string,
+  userId: string
+): Promise<void> => {
+  try {
+    // Delete specific document cache
+    await redis.del(`document:${documentId}:user:${userId}`);
+
+    // Delete user's document list cache
+    await redis.del(`user:${userId}:documents`);
+
+    console.log(
+      `✅ Cache invalidated for document ${documentId} and user ${userId}`
+    );
+  } catch (error) {
+    console.error("❌ Error invalidating cache:", error);
+  }
+};
+
 // Helper function to authenticate socket connection
 const authenticateSocket = async (token?: string) => {
   try {
@@ -303,8 +322,12 @@ export const initSocketService = (io: Server) => {
           });
 
           // Invalidate Redis cache for the document
-          await redis.del(`document:${documentId}`);
-          await redis.del(`user:${user._id.toString}:documents`);
+          // await redis.del(`document:${documentId}`);
+          // await redis.del(`user:${user._id.toString}:documents`);
+
+          const userId = user._id.toString(); // Store user ID safely
+
+          await invalidateDocumentCache(documentId, userId);
 
           console.log(
             `💾 Document ${documentId} saved by ${user.username}, Version ${newVersionNumber}`
