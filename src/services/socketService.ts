@@ -304,7 +304,7 @@ export const initSocketService = (io: Server) => {
 
           // Invalidate Redis cache for the document
           await redis.del(`document:${documentId}`);
-          await redis.del(`user:${user._id}:documents`);
+          await redis.del(`user:${user._id.toString}:documents`);
 
           console.log(
             `💾 Document ${documentId} saved by ${user.username}, Version ${newVersionNumber}`
