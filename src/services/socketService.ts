@@ -352,6 +352,7 @@ export const initSocketService = (io: Server) => {
             content: data,
             version: newVersionNumber,
             updatedBy: user._id,
+            updatedName: user.username,
             updatedAt: new Date(),
           });
 
