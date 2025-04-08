@@ -271,8 +271,6 @@ export const initSocketService = (io: Server) => {
 
     socket.on("save-document", async (data: any) => {
       try {
-        // console.log("data" , JSON.parse(JSON.stringify(data)));
-        // console.log(data.content);
         const rooms = Array.from(socket.rooms).filter(
           (room) => room !== socket.id
         );
@@ -338,6 +336,14 @@ export const initSocketService = (io: Server) => {
             await invalidateDocumentCache(documentId, ownerId);
           }
 
+          // Emit sync-document event to notify all clients in the room that document has been saved
+          io.to(documentId).emit("sync-document", {
+            content: data,
+            version: newVersionNumber,
+            updatedBy: user._id,
+            updatedAt: new Date(),
+          });
+
           console.log(
             `💾 Document ${documentId} saved by ${user.username}, Version ${newVersionNumber}, Cache invalidated for owner and ${collaborators.length} collaborators`
           );
@@ -347,7 +353,6 @@ export const initSocketService = (io: Server) => {
         socket.emit("error", { message: "Failed to save document" });
       }
     });
-
     socket.on("disconnect", async () => {
       try {
         const rooms = Array.from(socket.rooms).filter(

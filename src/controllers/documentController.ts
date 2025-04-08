@@ -76,7 +76,7 @@ export const createDocument = async (
   }
 };
 
-// Get all documents with Redis caching
+// Get all documents with Redis caching, pagination, and sorting
 export const getDocuments = async (
   req: AuthRequest,
   res: Response
@@ -91,28 +91,48 @@ export const getDocuments = async (
   }
 
   const userId = req.user._id as string;
-  const cacheKey = `user:${userId}:documents`;
+
+  // Pagination parameters
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+  const skip = (page - 1) * limit;
+
+  // Create a unique cache key that includes pagination parameters
+  const cacheKey = `user:${userId}:documents:page${page}:limit${limit}`;
 
   try {
     // Try to get documents from Redis cache first
     const cachedDocuments = await redis.get(cacheKey);
 
     if (cachedDocuments) {
-      console.log("✅ Using cached documents from Redis");
+      console.log(`✅ Using cached documents from Redis for page ${page}`);
       return res.status(200).json({
         status: "SUCCESS",
         data: JSON.parse(cachedDocuments),
         message: "Documents retrieved successfully from cache",
         error: null,
+        pagination: {
+          page,
+          limit,
+          hasMore: JSON.parse(cachedDocuments).length === limit,
+        },
       });
     }
 
-    // If not in cache, fetch from database
+    // If not in cache, fetch from database with pagination and sorting by createdAt in descending order
     const documents = await Document.find({
       $or: [{ owner: userId }, { "collaborators.user": userId }],
     })
+      .sort({ createdAt: -1 }) // Sort by createdAt in descending order (newest first)
+      .skip(skip)
+      .limit(limit)
       .populate("owner", "username email")
       .populate("collaborators.user", "username email");
+
+    // Count total documents for pagination info
+    const totalDocuments = await Document.countDocuments({
+      $or: [{ owner: userId }, { "collaborators.user": userId }],
+    });
 
     const documentsWithOwnership = documents.map((doc) => ({
       ...doc.toObject(),
@@ -126,11 +146,21 @@ export const getDocuments = async (
       JSON.stringify(documentsWithOwnership)
     );
 
+    // Calculate if there are more pages
+    const hasMore = skip + documents.length < totalDocuments;
+
     return res.status(200).json({
       status: "SUCCESS",
       data: documentsWithOwnership,
       message: "Documents retrieved successfully",
       error: null,
+      pagination: {
+        page,
+        limit,
+        total: totalDocuments,
+        totalPages: Math.ceil(totalDocuments / limit),
+        hasMore,
+      },
     });
   } catch (error) {
     console.error("❌ Error in getDocuments:", error);
@@ -407,6 +437,15 @@ export const deleteDocument = async (
     // Delete the document
     await Document.deleteOne({ _id: document._id });
     await invalidateDocumentCache(req.params.id, userId);
+
+    const collaborators = document.get("collaborators") || [];
+    // Invalidate Redis cache for all collaborators
+    if (collaborators && collaborators.length > 0) {
+      for (const collaborator of collaborators) {
+        const collaboratorId = collaborator.user.toString();
+        await invalidateDocumentCache(req.params.id, collaboratorId);
+      }
+    }
 
     return res.status(200).json({
       status: "SUCCESS",
