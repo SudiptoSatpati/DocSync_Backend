@@ -53,8 +53,21 @@ export const createDocument = async (
       createdBy: req.user._id,
     });
 
-    // Invalidate the user's document cache in Redis
-    await redis.del(`user:${req.user._id}:documents`);
+    const userId = req.user._id.toString();
+
+    // Invalidate user's documents cache
+    // We need to invalidate the main documents list cache, not a specific document
+    const cacheKey = `user:${userId}:documents`;
+    await redis.del(cacheKey);
+
+    // Additionally, invalidate any paginated document caches for this user
+    const keyPattern = `user:${userId}:documents:page*`;
+    const paginatedCacheKeys = await redis.keys(keyPattern);
+    if (paginatedCacheKeys.length > 0) {
+      await redis.del(paginatedCacheKeys);
+    }
+
+    console.log(`🗑️ Document list cache invalidated for user ${userId}`);
 
     return res.status(201).json({
       status: "SUCCESS",
