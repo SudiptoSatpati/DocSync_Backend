@@ -64,6 +64,7 @@ const io = new SocketIOServer(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
+  maxHttpBufferSize: 1e8,
 });
 
 // Initialize socket service
