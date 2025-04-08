@@ -296,8 +296,19 @@ export const invalidateDocumentCache = async (
     // Delete specific document cache
     await redis.del(`document:${documentId}:user:${userId}`);
 
-    // Delete user's document list cache
+    // Delete user's main document list cache
     await redis.del(`user:${userId}:documents`);
+
+    // Delete all paginated document caches for the user
+    const paginationPattern = `user:${userId}:documents:page*`;
+    const paginatedCacheKeys = await redis.keys(paginationPattern);
+
+    if (paginatedCacheKeys.length > 0) {
+      await redis.del(paginatedCacheKeys);
+      console.log(
+        `✅ Deleted ${paginatedCacheKeys.length} paginated cache entries for user ${userId}`
+      );
+    }
 
     console.log(
       `✅ Cache invalidated for document ${documentId} and user ${userId}`
