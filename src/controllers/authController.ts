@@ -323,7 +323,7 @@ export const forgotPassword = async (
 
     // Create reset URL
     // const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-    const resetUrl = `192.168.0.200:5173/reset-password/${resetToken}`;
+    const resetUrl = `https://doc-sync-frontend.vercel.app/reset-password/${resetToken}`;
 
     // Prepare email content
     const subject = "Password Reset Request";
